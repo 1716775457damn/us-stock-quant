@@ -130,7 +130,7 @@ elif page == "🔍 交易信号":
     symbols = load_watchlist()
     col1, col2 = st.columns([3, 1])
     with col2:
-        selected = st.multiselect("选择股票", symbols, default=symbols[:6])
+        selected = st.multiselect("选择股票", symbols, default=symbols[:1])
         if st.button("⚡ 生成信号", use_container_width=True):
             st.session_state.signals_generated = True
 
@@ -146,32 +146,139 @@ elif page == "🔍 交易信号":
                 summary = gen.generate_summary(df, symbol)
                 summaries.append(summary)
 
-            # Summary table
-            rows = []
-            for s in summaries:
-                rows.append({
-                    "股票": s["symbol"],
-                    "综合信号": s["overall_signal"],
-                    "买入": s["buy_signals"],
-                    "卖出": s["sell_signals"],
-                    "观望": s["hold_signals"],
-                    "价格": f"${s['price']}",
-                })
-            if rows:
+            if not summaries:
+                st.warning("无有效数据")
+            else:
+                # Summary table
+                rows = []
+                for s in summaries:
+                    rows.append({
+                        "股票": s["symbol"],
+                        "综合信号": s["overall_signal"],
+                        "买入": s["buy_signals"],
+                        "卖出": s["sell_signals"],
+                        "观望": s["hold_signals"],
+                        "价格": f"${s['price']:.2f}" if s.get("price") else "N/A",
+                    })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-                # Details
+                # Per-symbol detail with charts
                 for s in summaries:
+                    details = s.get("details", [])
+                    if not details:
+                        continue
+
                     color = {"BUY": "🟢", "SELL": "🔴", "HOLD": "🟡"}.get(s["overall_signal"], "⚪")
-                    with st.expander(f"{color} {s['symbol']} — {s['overall_signal']} (${s['price']})"):
+                    with st.expander(f"{color} {s['symbol']} — {s['overall_signal']} (${s['price']})", expanded=True):
+                        # Compute signal strengths for radar chart
+                        radar_values = {}
+                        for d in details:
+                            if "error" in d:
+                                continue
+                            name = d.get("signal", "")
+                            try:
+                                if name == "rsi":
+                                    rsi_val = float(d.get("rsi", 50))
+                                    radar_values[name] = round((rsi_val - 50) / 10, 2)
+                                elif name == "macd":
+                                    hist = float(d.get("histogram", 0))
+                                    radar_values[name] = round(hist * 100, 2)
+                                elif name == "bollinger":
+                                    price = float(d.get("price", 0))
+                                    mid = float(d.get("middle_band", price))
+                                    up = float(d.get("upper_band", price))
+                                    if up != mid:
+                                        radar_values[name] = round((price - mid) / (up - mid) * 2, 2)
+                                    else:
+                                        radar_values[name] = 0.0
+                                elif name == "volume_anomaly":
+                                    ratio = float(d.get("volume_ratio", 1))
+                                    radar_values[name] = round((ratio - 1) * 3, 2)
+                                elif name == "ma_cross":
+                                    fast = float(d.get("fast_ma", 0))
+                                    slow = float(d.get("slow_ma", 1))
+                                    radar_values[name] = round((fast - slow) / slow * 100, 2)
+                            except (ValueError, TypeError, KeyError):
+                                radar_values[name] = 0.0
+
+                        # Layout: charts row + table row
+                        chart_cols = st.columns([3, 2])
+
+                        with chart_cols[0]:
+                            if radar_values:
+                                # Radar chart
+                                cats = list(radar_values.keys())
+                                vals = list(radar_values.values())
+                                cats.append(cats[0])
+                                vals.append(vals[0])
+
+                                fig_radar = go.Figure()
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=vals, theta=cats, fill="toself",
+                                    name=s["symbol"],
+                                    line=dict(color="#00d4aa", width=2),
+                                    fillcolor="rgba(0, 212, 170, 0.2)",
+                                ))
+                                fig_radar.update_layout(
+                                    polar=dict(
+                                        radialaxis=dict(visible=True, range=[
+                                            min(min(vals)-1, -5),
+                                            max(max(vals)+1, 5),
+                                        ]),
+                                        angularaxis=dict(direction="clockwise"),
+                                    ),
+                                    showlegend=False,
+                                    margin=dict(l=60, r=60, t=30, b=30),
+                                    height=380,
+                                )
+                                st.plotly_chart(fig_radar, use_container_width=True)
+
+                        with chart_cols[1]:
+                            # Pie chart: BUY/SELL/HOLD distribution
+                            action_counts = {}
+                            for d in details:
+                                if "error" in d:
+                                    continue
+                                act = d.get("action", "UNKNOWN")
+                                action_counts[act] = action_counts.get(act, 0) + 1
+
+                            if action_counts:
+                                pie_labels = list(action_counts.keys())
+                                pie_values = list(action_counts.values())
+                                pie_colors = {
+                                    "BUY": "#22c55e", "SELL": "#ef4444",
+                                    "HOLD": "#f59e0b", "ALERT": "#3b82f6",
+                                    "NORMAL": "#6b7280",
+                                }
+                                colors = [pie_colors.get(l, "#6b7280") for l in pie_labels]
+
+                                fig_pie = go.Figure(go.Pie(
+                                    labels=pie_labels, values=pie_values,
+                                    marker=dict(colors=colors),
+                                    hole=0.4, textinfo="label+value",
+                                    textfont=dict(color="white"),
+                                ))
+                                fig_pie.update_layout(
+                                    showlegend=False,
+                                    margin=dict(l=10, r=10, t=30, b=10),
+                                    height=300,
+                                )
+                                fig_pie.add_annotation(
+                                    text=s["overall_signal"], x=0.5, y=0.5,
+                                    font=dict(size=22, color="white"), showarrow=False,
+                                )
+                                st.plotly_chart(fig_pie, use_container_width=True)
+
+                        # Detail table
                         detail_rows = []
-                        for d in s["details"]:
+                        for d in details:
+                            d = dict(d)  # copy to avoid mutating original
                             if "error" in d:
                                 detail_rows.append({"指标": d["signal"], "结果": "ERROR", "详情": d["error"]})
                             else:
-                                action = d.pop("action")
-                                name = d.pop("signal")
-                                date = d.pop("date", "")
+                                action = d.pop("action", "?")
+                                name = d.pop("signal", "?")
+                                d.pop("date", None)
                                 detail_str = " | ".join(f"{k}={v}" for k, v in d.items())
                                 detail_rows.append({"指标": name, "结果": action, "详情": detail_str})
                         st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
