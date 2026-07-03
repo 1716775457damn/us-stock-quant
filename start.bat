@@ -1,10 +1,12 @@
 @echo off
-chcp 65001 >nul
-echo [setup] 通过 WSL 启动...
-
+echo === us-stock-quant 启动 ===
 wsl -e bash -c "cd /mnt/d/us-stock-quant && bash start.sh %*"
+if errorlevel 1 goto :error
+goto :end
 
-if %errorlevel% neq 0 (
-    echo [ERROR] 启动失败，确认 WSL 已安装
-    pause
-)
+:error
+echo 启动失败，请确认 WSL 已安装
+echo 在 PowerShell 运行: wsl --install
+pause
+
+:end
