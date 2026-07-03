@@ -3,10 +3,12 @@
 cd "$(dirname "$0")"
 
 VENV_DIR="venv"
-if [ -d "$VENV_DIR" ]; then
+if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python3" ] && [ -f "$VENV_DIR/bin/pip3" ]; then
     PYTHON="$VENV_DIR/bin/python3"
     PIP="$VENV_DIR/bin/pip3"
 else
+    # Remove broken venv if it exists
+    [ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
     PYTHON="python3"
     PIP="pip3"
 fi
