@@ -41,4 +41,5 @@ echo "[dashboard] 启动 Streamlit 监控面板..."
 echo "          地址: http://localhost:8501"
 echo "          按 Ctrl+C 停止"
 echo ""
-$PYTHON -m streamlit run dashboard/app.py --server.port 8501 --server.headless 2>&1
+export STREAMLIT_SERVER_HEADLESS=true
+$PYTHON -m streamlit run dashboard/app.py --server.port 8501 2>&1
